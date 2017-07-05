@@ -1,0 +1,11 @@
+{
+      "event": "sensor-alarm",
+      "url": "COMPLETE ME",
+      "deviceid": "COMPLETE ME",
+      "requestType": "POST",
+      "headers": {
+	      "Secret": "COMPLETE ME"
+      },
+      "rejectUnauthorized": "true"
+}
+

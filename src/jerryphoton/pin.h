@@ -31,8 +31,16 @@ photon_pin(const jerry_value_t func,
     jerry_release_value(valid);
 
     if(argscount == 1) {
-        value = digitalRead(pin);
-        return jerry_create_boolean(value);
+        // Digital pins go from 0 to 6 (this is not portable, 
+        // may cause trouble, we should find a better way of checking this)
+        if(pin > D7) { 
+            // Analog pin
+            const double result = analogRead(pin);
+            return jerry_create_number(result);
+        } else {
+            value = digitalRead(pin);
+            return jerry_create_boolean(value);
+        }
     } else {
         digitalWrite(pin, value);
         return jerry_create_undefined();
@@ -45,7 +53,7 @@ photon_pin_mode(const jerry_value_t func,
                 const jerry_value_t *args,
                 const jerry_length_t argscount) {
     double pin = 0;
-    char mode[10] = { 0 };
+    char mode[20] = { 0 };
 
     jerryx_arg_t validators[] = {
         jerryx_arg_number(&pin, JERRYX_ARG_COERCE, JERRYX_ARG_REQUIRED),
@@ -92,9 +100,9 @@ photon_pin_mode(const jerry_value_t func,
             pinMode(pin, OUTPUT);
         } else if(strcmp(mode, "INPUT") == 0) {
             pinMode(pin, INPUT);
-        } else if(strcmp(mode, "INPUT") == 0) {
+        } else if(strcmp(mode, "INPUT_PULLUP") == 0) {
             pinMode(pin, INPUT_PULLUP);
-        } else if(strcmp(mode, "INPUT") == 0) {
+        } else if(strcmp(mode, "INPUT_PULLDOWN") == 0) {
             pinMode(pin, INPUT_PULLDOWN);
         } else {
             return jerry_create_error(JERRY_ERROR_COMMON, 

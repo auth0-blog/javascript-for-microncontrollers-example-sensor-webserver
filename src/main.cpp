@@ -21,6 +21,9 @@ static void check_upload();
 
 // Called once when the microcontroller boots
 void setup() {
+    // Disable OTA updates (partition used by user firmware)
+    System.disableUpdates();
+
     // Enable serial USB.
     USBSerial1.begin();
     

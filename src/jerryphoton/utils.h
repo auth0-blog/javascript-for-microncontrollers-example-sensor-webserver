@@ -3,7 +3,12 @@
 
 #include "jerryscript.h"
 
+#include <vector>
+
 namespace jerryphoton {
+
+std::vector<char>
+jerry_value_to_cstring(const jerry_value_t value);
 
 void log_jerry_error(jerry_value_t error);
 

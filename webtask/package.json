@@ -1,0 +1,18 @@
+{
+  "name": "iot-sensor-server",
+  "version": "1.0.0",
+  "description": "Sample IoT sensor server that sends emails when things go wrong",
+  "main": "app.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "author": "Sebastián Peyrott",
+  "license": "Public Domain",
+  "dependencies": {
+    "bluebird": "^3.5.0",
+    "body-parser": "^1.17.2",
+    "express": "^4.15.3",
+    "sendmail": "^1.1.1",
+    "webtask-tools": "^3.2.0"
+  }
+}

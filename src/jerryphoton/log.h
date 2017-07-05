@@ -5,29 +5,11 @@
 #include "application.h"
 #include "jerryscript.h"
 
+#include "utils.h"
+
 #include <vector>
 
 namespace jerryphoton {
-
-std::vector<char>
-jerry_value_to_cstring(const jerry_value_t value) {
-    const jerry_value_t str = jerry_value_is_string(value) ? 
-        value : jerry_value_to_string(value);
-    
-    const size_t size = jerry_get_string_size(str);
-    std::vector<char> buf(size + 1);
-    buf[size] = '\0';
-
-    jerry_string_to_utf8_char_buffer(str, 
-        reinterpret_cast<jerry_char_t*>(buf.data()), 
-        size);
-
-    if(!jerry_value_is_string(value)) {
-        jerry_release_value(str);
-    }
-
-    return buf;
-}
 
 static void
 photon_log(LogLevel level, const jerry_value_t arg) {

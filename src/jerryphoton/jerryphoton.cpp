@@ -9,6 +9,7 @@
 #include "application.h"
 #include "jerryscript.h"
 #include "jerryscript-port.h"
+#include "../dhtlib/dht.h"
 
 #include <cstdint>
 #include <vector>
@@ -263,7 +264,8 @@ static void add_pin_helpers() {
         "photon.pin.mode.INPUT = 'INPUT';"
         "photon.pin.mode.INPUT_PULLUP = 'INPUT_PULLUP';"
         "photon.pin.mode.INPUT_PULLDOWN = 'INPUT_PULLDOWN';"
-        "Object.freeze(photon.mode)";
+        "Object.freeze(photon.pin.mode);"
+        "Object.freeze(photon.pin);";
 
     jerry_value_t global = jerry_get_global_object();
 
@@ -273,6 +275,16 @@ static void add_pin_helpers() {
                    true));
 
     jerry_release_value(global);
+}
+
+static void add_pin_number(jerry_value_t pin, const char *name, int number) {
+    jerry_value_t num = jerry_create_number(number);
+    jerry_value_t n = create_string(name);
+
+    jerry_set_property(pin, n, num);
+
+    jerry_release_value(n);
+    jerry_release_value(num);
 }
 
 static jerry_value_t create_pin_object() {
@@ -288,6 +300,26 @@ static jerry_value_t create_pin_object() {
         
         jerry_release_value(prop);
         jerry_release_value(func);
+    }
+
+    // pins
+    {
+        add_pin_number(pin, "A0", A0);
+        add_pin_number(pin, "A1", A1);
+        add_pin_number(pin, "A2", A2);
+        add_pin_number(pin, "A3", A3);
+        add_pin_number(pin, "A4", A4);
+        add_pin_number(pin, "A5", A5);
+        add_pin_number(pin, "DAC", DAC);
+
+        add_pin_number(pin, "D0", D0);
+        add_pin_number(pin, "D1", D1);
+        add_pin_number(pin, "D2", D2);
+        add_pin_number(pin, "D3", D3);
+        add_pin_number(pin, "D4", D4);
+        add_pin_number(pin, "D5", D5);
+        add_pin_number(pin, "D6", D6);
+        add_pin_number(pin, "D7", D7);
     }
 
     return pin;
@@ -590,6 +622,121 @@ enter_dfu(const jerry_value_t func,
     return jerry_create_undefined();
 }
 
+static jerry_value_t 
+particle_publish(const jerry_value_t func,
+                 const jerry_value_t thiz,
+                 const jerry_value_t *args,
+                 const jerry_length_t argscount) {
+    if(argscount == 0) {
+        return jerry_create_error(JERRY_ERROR_COMMON,
+            reinterpret_cast<const jerry_char_t*>("Wrong number of arguments"));
+    }
+
+    std::vector<char> event;
+    
+    {
+        jerry_value_t eventstr = jerry_value_is_string(*args) ? 
+            *args : jerry_value_to_string(*args);
+        const size_t eventsize = jerry_get_string_size(eventstr);
+        
+        event.resize(eventsize + 1);
+        
+        jerry_string_to_char_buffer(eventstr, 
+            reinterpret_cast<jerry_char_t*>(event.data()), 
+            eventsize);
+        
+        if(!jerry_value_is_string(*args)) {
+            jerry_release_value(eventstr);
+        }
+
+        if(eventsize > 63) {
+            return jerry_create_error(JERRY_ERROR_RANGE,
+                reinterpret_cast<const jerry_char_t*>(
+                    "Event name too long (max 63)"));
+        }
+    }
+
+    bool published = false;
+    if(argscount == 1) {
+        published = Particle.publish(event.data());
+    } else {
+        jerry_value_t datastr = jerry_value_is_string(args[1]) ? 
+            args[1] : jerry_value_to_string(args[1]);
+        const size_t datasize = jerry_get_string_size(datastr);
+        
+        std::vector<char> data(datasize + 1);
+        
+        jerry_string_to_char_buffer(datastr, 
+            reinterpret_cast<jerry_char_t*>(data.data()), 
+            datasize);
+
+        if(!jerry_value_is_string(args[1])) {
+            jerry_release_value(datastr);
+        }
+
+        if(datasize > 255) {
+            return jerry_create_error(JERRY_ERROR_RANGE,
+                reinterpret_cast<const jerry_char_t*>(
+                    "Data too big (max 255)"));
+        }
+
+        published = Particle.publish(event.data(), data.data());
+    }    
+
+    return published ? 
+        jerry_create_undefined() : 
+        jerry_create_error(JERRY_ERROR_COMMON, 
+            reinterpret_cast<const jerry_char_t*>(
+                "Failed to publish message"));
+}
+
+static jerry_value_t 
+dht11_read(const jerry_value_t func,
+           const jerry_value_t thiz,
+           const jerry_value_t *args,
+           const jerry_length_t argscount) {
+    double pin = 0;
+
+    const jerryx_arg_t validators[] = {
+        jerryx_arg_number(&pin, JERRYX_ARG_COERCE, JERRYX_ARG_REQUIRED)
+    };
+
+    const jerry_value_t valid = 
+        jerryx_arg_transform_args(args, argscount, 
+            validators, sizeof(validators) / sizeof(*validators));
+
+    if(jerry_value_has_error_flag(valid)) {
+        return valid;
+    }
+    jerry_release_value(valid);
+
+    dht d;
+    uint8_t ec = d.read11(pin);
+    if(ec == DHTLIB_OK) {
+        jerry_value_t result = jerry_create_object();
+        
+        jerry_value_t tempstr = create_string("temperature");
+        jerry_value_t temp = jerry_create_number(d.temperature);
+
+        jerry_value_t humstr = create_string("humidity");
+        jerry_value_t hum = jerry_create_number(d.humidity);
+
+        jerry_set_property(result, tempstr, temp);
+        jerry_set_property(result, humstr, hum);
+
+        jerry_release_value(hum);
+        jerry_release_value(humstr);
+        jerry_release_value(temp);
+        jerry_release_value(tempstr);
+
+        return result;
+    } else {
+        Log.error("DHT read error %hu", ec);
+        return jerry_create_error(JERRY_ERROR_COMMON, 
+            reinterpret_cast<const jerry_char_t*>("DHT read error"));
+    }
+}
+
 js::js(): pimpl_(new impl) {
 
 }
@@ -606,7 +753,7 @@ js& js::instance()  {
     // 'photon' object
     jerry_value_t photon = jerry_create_object();
 
-    // 'pin' function
+    // 'pin' object
     {
         jerry_value_t pin = create_pin_object();
         jerry_value_t prop = create_string("pin");
@@ -672,6 +819,17 @@ js& js::instance()  {
         jerry_release_value(func);
     }
 
+    // 'publish' function
+    {
+        jerry_value_t func = jerry_create_external_function(particle_publish);
+        jerry_value_t prop = create_string("publish");
+        
+        jerry_set_property(photon, prop, func);
+        
+        jerry_release_value(prop);
+        jerry_release_value(func);
+    }
+
     // Add 'photon' to the global object/scope
     {
         // The global object is the object in the outermost scope in 
@@ -690,6 +848,33 @@ js& js::instance()  {
 
     // It is now stored inside the global object, so we must release it here
     jerry_release_value(photon);
+
+    // DHT11 object (humidity sensor)
+    {
+        jerry_value_t dht11 = jerry_create_object();
+
+        {
+            jerry_value_t func = jerry_create_external_function(dht11_read);
+            jerry_value_t prop = create_string("read");
+
+            jerry_set_property(dht11, prop, func);
+
+            jerry_release_value(prop);
+            jerry_release_value(func);
+        }
+        
+        {
+            jerry_value_t global = jerry_get_global_object();
+            jerry_value_t prop = create_string("dht11");
+
+            jerry_set_property(global, prop, dht11);
+
+            jerry_release_value(prop);
+            jerry_release_value(global);
+        }
+        
+        jerry_release_value(dht11);
+    }
 
     // Execute JavaScript init scripts.
     add_pin_helpers();
@@ -726,7 +911,7 @@ void js::eval(const char* script, size_t size)  {
     jerry_value_t result = 
         jerry_eval(reinterpret_cast<const jerry_char_t*>(script), 
                    size == 0 ? strlen(script) : size, 
-                   false);    
+                   false);
     if(jerry_value_has_error_flag(result)) {
         log_jerry_error(result);
     }

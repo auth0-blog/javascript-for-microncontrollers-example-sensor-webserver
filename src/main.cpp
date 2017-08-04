@@ -1,6 +1,7 @@
 #include "application.h"
 
 #include "jerryphoton/jerryphoton.h"
+#include "main.bundle.h"
 
 #include <vector>
 #include <cstdint>
@@ -35,7 +36,7 @@ void setup() {
     Particle.variable("freeMemory", freemem);
     Particle.publish("spark/device/ip");
     
-    js::instance().eval(
+    /*js::instance().eval(
         "count = 0;"
         "photon.pin.mode(7, 'OUTPUT');"
         "setInterval(function() {"
@@ -43,7 +44,10 @@ void setup() {
         "   photon.log.trace('Hello from JavaScript! ' + count.toString());"
         "   ++count;"
         "}, 1000);"
-    );
+    );*/
+    
+    Log.trace("About to run stored script");
+    js::instance().eval(main_bundle_js, main_bundle_js_len);
 
     upload.begin();
 

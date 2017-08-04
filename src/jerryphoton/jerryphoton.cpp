@@ -14,6 +14,8 @@
 #include <cstdint>
 #include <vector>
 
+//extern "C" void jerry_port_default_set_log_level (jerry_log_level_t level);
+
 namespace jerryphoton {
 
 static js* instance_ = nullptr;
@@ -331,8 +333,17 @@ static void client_destructor(void* client_) {
     delete client;
 }
 
+static void server_destructor(void* server_) {
+    TCPServer* server = reinterpret_cast<TCPServer*>(server_);
+    delete server;
+}
+
 static const jerry_object_native_info_t client_native_info = {
     client_destructor
+};
+
+static const jerry_object_native_info_t server_native_info = {
+    server_destructor
 };
 
 static jerry_value_t 
@@ -541,6 +552,33 @@ tcp_client_stop(const jerry_value_t func,
     return jerry_create_undefined();
 }
 
+static void
+build_tcp_client_object(jerry_value_t instance, TCPClient *native) {
+    static const struct {
+        const char* name;
+        jerry_external_handler_t handler;
+    } funcs[] = {
+        { "connected", tcp_client_connected },
+        { "connect"  , tcp_client_connect   },
+        { "write"    , tcp_client_write     },
+        { "available", tcp_client_available },
+        { "read"     , tcp_client_read      },
+        { "stop"     , tcp_client_stop      }
+    };
+
+    for(const auto& f: funcs) {
+        const jerry_value_t name = create_string(f.name);
+        const jerry_value_t func = jerry_create_external_function(f.handler);
+        
+        jerry_set_property(instance, name, func);
+        
+        jerry_release_value(func);
+        jerry_release_value(name);
+    }
+
+    jerry_set_object_native_pointer(instance, native, &client_native_info);
+}
+
 static jerry_value_t 
 create_tcp_client(const jerry_value_t func,
                   const jerry_value_t thiz,
@@ -557,21 +595,72 @@ create_tcp_client(const jerry_value_t func,
         jerry_release_value(ownname);
     }
 
-    struct {
-        const char* name;
-        jerry_external_handler_t handler;
-    } funcs[] = {
-        { "connected", tcp_client_connected },
-        { "connect"  , tcp_client_connect   },
-        { "write"    , tcp_client_write     },
-        { "available", tcp_client_available },
-        { "read"     , tcp_client_read      },
-        { "stop"     , tcp_client_stop      }
-    };
+    // Backing object
+    TCPClient* client = new TCPClient;
+    
+    build_tcp_client_object(constructed, client);
 
-    for(const auto& f: funcs) {
-        const jerry_value_t name = create_string(f.name);
-        const jerry_value_t func = jerry_create_external_function(f.handler);
+    return constructed;
+}
+
+static jerry_value_t 
+tcp_server_available(const jerry_value_t func,
+                     const jerry_value_t thiz,
+                     const jerry_value_t *args,
+                     const jerry_length_t argscount) {
+    TCPServer* server = NULL;
+    const jerry_object_native_info_t *native_info = NULL;
+    
+    jerry_get_object_native_pointer(thiz, 
+        reinterpret_cast<void**>(&server), &native_info);
+    
+    if(native_info != &server_native_info) {
+        return jerry_create_error(JERRY_ERROR_TYPE,
+            reinterpret_cast<const jerry_char_t*>(
+                "TCPServer.available called with wrong this pointer"));
+    }
+
+    TCPClient* client = new TCPClient(server->available());
+    jerry_value_t jsclient = jerry_create_object();
+
+    build_tcp_client_object(jsclient, client);
+
+    return jsclient;
+}
+
+static jerry_value_t 
+create_tcp_server(const jerry_value_t func,
+                  const jerry_value_t thiz,
+                  const jerry_value_t *args,
+                  const jerry_length_t argscount) {
+    jerry_value_t constructed = thiz;
+    
+    Log.trace("TCPServer: argscount %u", argscount);
+
+    if(argscount != 1 || !jerry_value_is_number(*args)) {
+        return jerry_create_error(JERRY_ERROR_COMMON,
+            reinterpret_cast<const jerry_char_t*>("TCPServer: missing port"));
+    }
+
+    const uint16_t port = static_cast<uint16_t>(jerry_get_number_value(*args));
+
+    Log.trace("TCPServer: port: %hu", port);
+
+    // Construct object if new was not used to call this function
+    {
+        const jerry_value_t ownname = create_string("TCPServer");
+        if(jerry_has_property(constructed, ownname)) {
+            constructed = jerry_create_object();
+        }
+        jerry_release_value(ownname);
+    }
+
+    Log.trace("TCPServer: constructed empty object");
+
+    {
+        const jerry_value_t name = create_string("available");
+        const jerry_value_t func =
+            jerry_create_external_function(tcp_server_available);
         
         jerry_set_property(constructed, name, func);
         
@@ -579,9 +668,12 @@ create_tcp_client(const jerry_value_t func,
         jerry_release_value(name);
     }
 
-    // Add backing object
-    TCPClient* client = new TCPClient;
-    jerry_set_object_native_pointer(constructed, client, &client_native_info);
+    Log.trace("TCPServer: added available");
+
+    // Backing object
+    TCPServer* server = new TCPServer(port);
+    Log.trace("TCPServer: new backing object");
+    jerry_set_object_native_pointer(constructed, server, &server_native_info);
 
     return constructed;
 }
@@ -748,7 +840,7 @@ js& js::instance()  {
 
     instance_ = new js;
 
-    jerry_init(JERRY_INIT_EMPTY);
+    jerry_init(JERRY_INIT_DEBUGGER);
 
     // 'photon' object
     jerry_value_t photon = jerry_create_object();
@@ -790,6 +882,17 @@ js& js::instance()  {
     {
         jerry_value_t func = jerry_create_external_function(create_tcp_client);    
         jerry_value_t prop = create_string("TCPClient");
+        
+        jerry_set_property(photon, prop, func);
+        
+        jerry_release_value(prop);
+        jerry_release_value(func);
+    }
+
+    // TCP server constructor/factory
+    {
+        jerry_value_t func = jerry_create_external_function(create_tcp_server);    
+        jerry_value_t prop = create_string("TCPServer");
         
         jerry_set_property(photon, prop, func);
         
@@ -883,6 +986,8 @@ js& js::instance()  {
     instance_->pimpl_->add_timers_to_js();
 
     Log.trace("JavaScript interpreter initialized");
+
+    //jerry_port_default_log_level = JERRY_LOG_LEVEL_TRACE;
 
     return *instance_;
 }

@@ -63,34 +63,53 @@ function sendEvent(event, data) {
 
 let data = {};
 let timeSinceAlarmMs = 0;
+const intervals = [];
 
-// Check sensors as fast as possible for values outside the normal thresholds
-setInterval(() => {
-    timeSinceAlarmMs += 500;
+export function startReports() {
+    // Check sensors as fast as possible for 
+    // values outside the normal thresholds
+    intervals.push(
+        setInterval(() => {
+            timeSinceAlarmMs += 500;
 
-    try {
-        data = readSensors();
-        if(checkData(data)) {
-            photon.pin(photon.pin.D7, true);
-            if(timeSinceAlarmMs >= alarmWaitMs) {
-                sendEvent(eventAlarm, data);
-                sendData(data);
-                timeSinceAlarmMs = 0;
+            try {
+                data = readSensors();
+                if(checkData(data)) {
+                    photon.pin(photon.pin.D7, true);
+                    if(timeSinceAlarmMs >= alarmWaitMs) {
+                        sendEvent(eventAlarm, data);
+                        sendData(data);
+                        timeSinceAlarmMs = 0;
+                    }
+                } else {
+                    photon.pin(photon.pin.D7, false);
+                }
+            } catch(e) {
+                photon.log.error(e.toString());
             }
-        } else {
-            photon.pin(photon.pin.D7, false);
-        }
-    } catch(e) {
-        photon.log.error(e.toString());
-    }
-}, 500);
+        }, 500)
+    );
 
-// Send a snapshot every interval milliseconds
-setInterval(() => {
-    try {
-        sendEvent(eventReport, data);
-        sendData(data);
-    } catch(e) {
-        photon.log.error(e.toString());
-    }
-}, interval);
+    // Send a snapshot every interval milliseconds
+    intervals.push(
+        setInterval(() => {
+            try {
+                sendEvent(eventReport, data);
+                sendData(data);
+            } catch(e) {
+                photon.log.error(e.toString());
+            }
+        }, interval)
+    );
+}
+
+export function stopReports() {
+    intervals.forEach(clearInterval);
+}
+
+export function getLastReport() {
+    return {
+        data: data,
+        timeSinceLastAlarmMs: timeSinceAlarmMs
+    };
+}

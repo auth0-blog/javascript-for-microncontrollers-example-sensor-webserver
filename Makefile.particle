@@ -15,7 +15,7 @@
 PARTICLE_FIRMWARE := $(CURDIR)/../particle/firmware/modules
 
 JERRYDIR ?= $(CURDIR)
-JERRYHEAP  ?= 32
+JERRYHEAP  ?= 42
 
 BUILD_DIR  ?= $(JERRYDIR)/build/particle
 

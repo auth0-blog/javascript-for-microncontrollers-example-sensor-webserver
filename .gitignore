@@ -5,3 +5,4 @@ src/target
 js/dist
 js/node_modules
 webtask/node_modules
+src/main.bundle.h
